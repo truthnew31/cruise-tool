@@ -70,17 +70,18 @@ function OutputContent({ productId }: { productId: string }) {
     if (!outputRef.current) return;
     setExporting("jpg");
     try {
-      const html = buildHtmlString();
-      const form = new FormData();
-      form.append("html", html);
-      const res = await fetch("/api/export-jpg", { method: "POST", body: form });
-      if (!res.ok) throw new Error(await res.text());
-      const blob = await res.blob();
+      const html2canvas = (await import("html2canvas")).default;
+      const canvas = await html2canvas(outputRef.current, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: true,
+        logging: false,
+        backgroundColor: "#ffffff",
+      });
       const link = document.createElement("a");
       link.download = `${shippingLine}_${shipName}_${region}.jpg`.replace(/\s+/g, "_");
-      link.href = URL.createObjectURL(blob);
+      link.href = canvas.toDataURL("image/jpeg", 0.92);
       link.click();
-      URL.revokeObjectURL(link.href);
     } catch (e) {
       alert("JPG 저장 실패: " + String(e));
     } finally {
