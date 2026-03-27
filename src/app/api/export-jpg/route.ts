@@ -1,7 +1,8 @@
 // POST /api/export-jpg
 // Body: FormData { html: string }
 // Returns: JPEG image
-// Puppeteer로 HTML을 렌더링해서 스크린샷 반환
+// 로컬: puppeteer (로컬 Chrome)
+// Vercel: puppeteer-core + @sparticuz/chromium (서버리스 Chrome)
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -12,17 +13,31 @@ export async function POST(request: Request) {
     const html = formData.get("html") as string;
     if (!html) return Response.json({ error: "html 필드 누락" }, { status: 400 });
 
-    const puppeteer = await import("puppeteer");
-    const browser = await puppeteer.default.launch({
-      headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-web-security"],
-    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let browser: any;
+
+    if (process.env.VERCEL) {
+      // Vercel 서버리스: @sparticuz/chromium + puppeteer-core
+      const chromium = await import("@sparticuz/chromium");
+      const puppeteerCore = await import("puppeteer-core");
+      browser = await puppeteerCore.default.launch({
+        args: chromium.default.args,
+        executablePath: await chromium.default.executablePath(),
+        headless: true,
+      });
+    } else {
+      // 로컬: 일반 puppeteer
+      const puppeteer = await import("puppeteer");
+      browser = await puppeteer.default.launch({
+        headless: true,
+        args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-web-security"],
+      });
+    }
 
     const page = await browser.newPage();
     await page.setViewport({ width: 800, height: 1200, deviceScaleFactor: 2 });
     await page.setContent(html, { waitUntil: "networkidle0" });
 
-    // 콘텐츠 전체 높이에 맞춰 스크린샷
     const bodyHeight = await page.evaluate(() => document.body.scrollHeight);
     await page.setViewport({ width: 800, height: bodyHeight, deviceScaleFactor: 2 });
 

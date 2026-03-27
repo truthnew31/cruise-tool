@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const product = getProduct(id);
+  const product = await getProduct(id);
   if (!product) return Response.json({ ok: false, error: "상품 없음" }, { status: 404 });
   return Response.json({ ok: true, product });
 }
@@ -20,16 +20,16 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
   try { body = await request.json(); }
   catch { return Response.json({ ok: false, error: "JSON 파싱 실패" }, { status: 400 }); }
 
-  const existing = getProduct(id);
-  const now      = new Date().toISOString();
+  const existing  = await getProduct(id);
+  const now       = new Date().toISOString();
   const thumbnail = body.images?.s01Hero ?? existing?.thumbnail ?? undefined;
 
-  upsertProduct({ ...existing, ...body, id, thumbnail, createdAt: existing?.createdAt ?? now, updatedAt: now });
+  await upsertProduct({ ...existing, ...body, id, thumbnail, createdAt: existing?.createdAt ?? now, updatedAt: now });
   return Response.json({ ok: true });
 }
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  deleteProduct(id);
+  await deleteProduct(id);
   return Response.json({ ok: true });
 }

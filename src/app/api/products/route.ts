@@ -6,7 +6,7 @@ import { listProducts, upsertProduct } from "@/lib/db";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const products = listProducts();
+  const products = await listProducts();
   return Response.json({ ok: true, products });
 }
 
@@ -24,6 +24,6 @@ export async function POST(request: Request) {
   const now       = new Date().toISOString();
   const thumbnail = body.images?.s01Hero ?? undefined;
 
-  upsertProduct({ ...body, thumbnail, createdAt: now, updatedAt: now });
+  await upsertProduct({ ...body, thumbnail, createdAt: now, updatedAt: now });
   return Response.json({ ok: true });
 }
