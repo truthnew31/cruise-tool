@@ -17,20 +17,26 @@ async function researchFacts(
   region: string
 ): Promise<string> {
   try {
-    const query = `크루즈 선박 "${shipName}" (${shippingLine}) 에 대해 아래 항목을 검색해줘:
+    const query = `크루즈 선박 "${shipName}" (${shippingLine}) 정보를 검색해줘.
 
+🔍 검색 우선순위:
+1순위: 공식 선사 홈페이지 (예: ncl.com, royalcaribbean.com, princess.com, msc.com 등) — 여기서 찾은 정보는 "[공식]" 표시
+2순위: 위키피디아, 크루즈 전문 사이트 (cruisemapper.com, cruiseline.com 등) — 여기서 찾은 정보는 "[검색]" 표시
+3순위: 위도 안 되면 "미확인"으로 표시
+
+수집할 항목:
 1. 선박 공식 제원
    - 건조년도, 총 톤수(GT), 전장(m), 전폭(m), 승객 정원, 승무원 수
 
-2. 선내 실제 시설 목록 (이 선박에 실제로 있는 것만)
-   - 주요 부대시설: 수영장, 스파, 카지노, 극장, 스포츠시설 등 (이름 포함)
-   - 어린이/패밀리 시설: 키즈클럽, 워터파크, 놀이터 등 (이름 포함)
-   - 다이닝: 메인 레스토랑, 스페셜티 레스토랑, 바/라운지 (이름과 무료/유료 여부)
-   - 별도 유료 시설 목록
+2. 선내 실제 시설 목록 (이 선박에 실제로 있는 것만, 이름 명시)
+   - 주요 부대시설: 수영장, 스파, 카지노, 극장, 스포츠시설 등
+   - 어린이/패밀리 시설: 키즈클럽, 워터파크, 놀이터 등
+   - 다이닝: 메인 레스토랑, 스페셜티 레스토랑, 바/라운지 (무료/유료 여부 포함)
+   - 유료 전용 시설 목록
 
 3. "${region}" 항로의 실제 기항지 목록 (도시명, 국가명)
 
-확인된 사실만 나열하고, 모르는 항목은 "미확인"으로 표시해.`;
+각 항목마다 [공식] / [검색] / 미확인 구분을 명확히 표시해줘.`;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const res = await (client as any).beta.messages.create({
@@ -164,7 +170,8 @@ function buildPrompt(
   },
   "S08": {
     "closingCopy": "마무리 감성 카피 20자 이내 (S01 메인카피와 연결되는 느낌)"
-  }
+  },
+  "needsReview": ["공식 소스에서 확인 불가한 항목을 문자열 배열로 나열. 예: [\"S04.specs.builtYear\", \"S06.mainFacilities — 스파 이름\", \"S07.ports — 3번째 기항지\"]. 모두 공식 확인됐으면 빈 배열 []"]
 }`;
 }
 
@@ -195,9 +202,12 @@ export async function GET(request: Request) {
 
     const raw   = (message.content[0] as { type: "text"; text: string }).text;
     const clean = raw.replace(/```json\n?|\n?```/g, "").trim();
-    const data  = JSON.parse(clean);
+    const parsed = JSON.parse(clean);
 
-    return Response.json({ ok: true, data, searchUsed: !!researchContext });
+    // needsReview 분리 후 data에서 제거
+    const { needsReview = [], ...data } = parsed;
+
+    return Response.json({ ok: true, data, needsReview, searchUsed: !!researchContext });
   } catch (err) {
     return Response.json(
       { ok: false, error: err instanceof Error ? err.message : "Unknown error" },

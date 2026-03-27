@@ -175,6 +175,12 @@ function EditContent({ productId }: { productId: string }) {
   const [isSaving, setIsSaving] = useState(false);
   const [savedAt,  setSavedAt]  = useState<string | null>(null);
 
+  // S06 이미지 드래그 상태
+  const [dragImg, setDragImg] = useState<{ key: string; idx: number } | null>(null);
+
+  // AI 생성 후 검수 필요 항목
+  const [needsReview, setNeedsReview] = useState<string[]>([]);
+
   // DB에 저장
   async function saveToDb(d = data, im = images) {
     if (!d) return;
@@ -218,6 +224,34 @@ function EditContent({ productId }: { productId: string }) {
       cabins[i] = { ...cabins[i], [field]: val };
       return { ...im, s05Cabins: cabins };
     });
+  }
+
+  // ── S06 이미지 드래그&드롭 순서 변경 ─────────────────────────
+  function handleImgDrop(key: keyof ImageStore, dropIdx: number) {
+    if (!dragImg || dragImg.key !== key || dragImg.idx === dropIdx) { setDragImg(null); return; }
+    setImages(im => {
+      const arr: (string | undefined)[] = [0, 1, 2].map(i => (im[key] as string[] | undefined)?.[i]);
+      [arr[dragImg.idx], arr[dropIdx]] = [arr[dropIdx], arr[dragImg.idx]];
+      return { ...im, [key]: arr };
+    });
+    setDragImg(null);
+  }
+
+  // ── S06 이미지 일괄 업로드 ────────────────────────────────────
+  function handleBulkUpload(key: keyof ImageStore, e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []).slice(0, 3);
+    files.forEach((file, idx) => {
+      const reader = new FileReader();
+      reader.onload = ev => setArr(key as "s06Main" | "s06Kids" | "s06Dining", idx, ev.target?.result as string);
+      reader.readAsDataURL(file);
+    });
+    e.target.value = "";
+  }
+
+  // ── S06 시설 태그 변경 시 무료→상단, 유료→하단 자동 정렬 ──────
+  const TAG_ORDER: Record<string, number> = { free: 0, partially_paid: 1, paid: 2 };
+  function sortByTag<T extends { tag: Tag }>(arr: T[]): T[] {
+    return [...arr].sort((a, b) => (TAG_ORDER[a.tag] ?? 9) - (TAG_ORDER[b.tag] ?? 9));
   }
 
   // 기항지 이름 → AI로 국가 + 설명 자동완성 + Unsplash 이미지 검색
@@ -392,6 +426,7 @@ function EditContent({ productId }: { productId: string }) {
           if (res.ok) {
             const d = res.data as AllData;
             setData(d);
+            if (res.needsReview?.length > 0) setNeedsReview(res.needsReview);
             // S07 기항지 이미지만 Unsplash 자동 채우기
             // — 기항지명+국가 쿼리로 검색 후 alt_description 에 지명이 포함된 경우만 삽입
             const ports = d.S07.ports.filter(p => p.name.trim());
@@ -528,6 +563,20 @@ function EditContent({ productId }: { productId: string }) {
         {/* ── 좌: 편집 폼 ── */}
         <div className="flex-1 overflow-y-auto">
           <div className="max-w-2xl mx-auto px-6 py-8 space-y-5">
+
+            {/* ── AI 검수 필요 배너 ── */}
+            {needsReview.length > 0 && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex gap-3">
+                <span className="text-lg flex-shrink-0">⚠️</span>
+                <div className="flex-1">
+                  <p className="text-sm font-bold text-amber-800 mb-1">공식 소스 미확인 항목 — 직접 검수 필요</p>
+                  <ul className="text-xs text-amber-700 space-y-0.5 list-disc list-inside">
+                    {needsReview.map((item, i) => <li key={i}>{item}</li>)}
+                  </ul>
+                </div>
+                <button onClick={() => setNeedsReview([])} className="text-amber-400 hover:text-amber-600 text-xl leading-none flex-shrink-0">×</button>
+              </div>
+            )}
 
             {/* S01 */}
             <SectionCard id="S01" title="인트로 헤드카피">
@@ -681,11 +730,20 @@ function EditContent({ productId }: { productId: string }) {
                   <p className="text-xs font-medium text-gray-500">캐빈 타입 + 이미지</p>
                   {s.S05.cabinTypes.map((c, i) => (
                     <div key={i} className="border border-gray-200 rounded-xl p-4 space-y-2">
-                      <input value={c.name}
-                        onChange={e => setData(d => { if (!d) return d; const ct = [...d.S05.cabinTypes]; ct[i] = { ...ct[i], name: e.target.value }; return { ...d, S05: { ...d.S05, cabinTypes: ct } }; })}
-                        className="w-full border-0 text-sm font-semibold text-gray-800 focus:outline-none bg-transparent border-b border-gray-200 pb-1"
-                        placeholder="캐빈 타입명"
-                      />
+                      {/* 타입명 + 삭제 버튼 */}
+                      <div className="flex items-center gap-2">
+                        <input value={c.name}
+                          onChange={e => setData(d => { if (!d) return d; const ct = [...d.S05.cabinTypes]; ct[i] = { ...ct[i], name: e.target.value }; return { ...d, S05: { ...d.S05, cabinTypes: ct } }; })}
+                          className="flex-1 border-0 text-sm font-semibold text-gray-800 focus:outline-none bg-transparent border-b border-gray-200 pb-1"
+                          placeholder="캐빈 타입명"
+                        />
+                        <button
+                          onClick={() => {
+                            setData(d => { if (!d) return d; return { ...d, S05: { ...d.S05, cabinTypes: d.S05.cabinTypes.filter((_, j) => j !== i) } }; });
+                            setImages(im => { const cabs = [...(im.s05Cabins ?? [])]; cabs.splice(i, 1); return { ...im, s05Cabins: cabs }; });
+                          }}
+                          className="text-gray-300 hover:text-red-400 text-xl leading-none flex-shrink-0" title="삭제">×</button>
+                      </div>
                       <textarea value={c.desc} rows={2}
                         onChange={e => setData(d => { if (!d) return d; const ct = [...d.S05.cabinTypes]; ct[i] = { ...ct[i], desc: e.target.value }; return { ...d, S05: { ...d.S05, cabinTypes: ct } }; })}
                         className="w-full border-0 text-sm text-gray-600 focus:outline-none bg-transparent resize-none"
@@ -702,6 +760,12 @@ function EditContent({ productId }: { productId: string }) {
                       </div>
                     </div>
                   ))}
+                  {/* 캐빈 타입 추가 버튼 */}
+                  <button
+                    onClick={() => setData(d => { if (!d) return d; return { ...d, S05: { ...d.S05, cabinTypes: [...d.S05.cabinTypes, { name: "", desc: "", subDesc: "" }] } }; })}
+                    className="text-sm text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1">
+                    <span className="text-base">+</span> 캐빈 타입 추가
+                  </button>
                 </div>
 
                 {/* 가격표 */}
@@ -756,12 +820,28 @@ function EditContent({ productId }: { productId: string }) {
                 {/* ① 주요 부대시설 */}
                 <div>
                   <p className="text-xs font-bold text-gray-500 mb-2">① 주요 부대시설</p>
-                  {/* 하이라이트 이미지 3장 */}
-                  <div className="grid grid-cols-3 gap-2 mb-3">
-                    {[0, 1, 2].map(idx => (
-                      <ImgUpload key={idx} label={`하이라이트 ${idx + 1}`} src={images.s06Main?.[idx]}
-                        onChange={v => setArr("s06Main", idx, v)} compact />
-                    ))}
+                  {/* 하이라이트 이미지 3장 — 일괄업로드 + 드래그 순서 변경 */}
+                  <div className="mb-3">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <p className="text-xs text-gray-400">⠿ 드래그해서 순서 변경</p>
+                      <label className="text-xs text-blue-600 cursor-pointer hover:text-blue-700 font-medium">
+                        + 일괄 업로드
+                        <input type="file" multiple accept="image/*" className="hidden" onChange={e => handleBulkUpload("s06Main", e)} />
+                      </label>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[0, 1, 2].map(idx => (
+                        <div key={idx}
+                          draggable={!!images.s06Main?.[idx]}
+                          onDragStart={() => setDragImg({ key: "s06Main", idx })}
+                          onDragOver={e => e.preventDefault()}
+                          onDrop={() => handleImgDrop("s06Main", idx)}
+                          className={`rounded-xl transition-opacity ${dragImg?.key === "s06Main" && dragImg?.idx === idx ? "opacity-40 ring-2 ring-blue-400" : ""}`}>
+                          <ImgUpload label={`하이라이트 ${idx + 1}`} src={images.s06Main?.[idx]}
+                            onChange={v => setArr("s06Main", idx, v)} compact />
+                        </div>
+                      ))}
+                    </div>
                   </div>
                   <div className="space-y-2">
                     {s.S06.mainFacilities.map((f, i) => (
@@ -776,7 +856,7 @@ function EditContent({ productId }: { productId: string }) {
                               className="w-full text-xs text-gray-500 bg-transparent focus:outline-none" />
                           </div>
                           <select value={f.tag}
-                            onChange={e => setData(d => { if (!d) return d; const fs = [...d.S06.mainFacilities]; fs[i] = { ...fs[i], tag: e.target.value as Tag }; return { ...d, S06: { ...d.S06, mainFacilities: fs } }; })}
+                            onChange={e => setData(d => { if (!d) return d; const fs = [...d.S06.mainFacilities]; fs[i] = { ...fs[i], tag: e.target.value as Tag }; return { ...d, S06: { ...d.S06, mainFacilities: sortByTag(fs) } }; })}
                             className={`text-xs font-medium px-2 py-1 rounded-lg border-0 focus:outline-none self-start ${f.tag === "free" ? "bg-green-100 text-green-700" : f.tag === "paid" ? "bg-red-100 text-red-700" : "bg-orange-100 text-orange-700"}`}>
                             <option value="free">무료</option>
                             <option value="partially_paid">일부유료</option>
@@ -794,12 +874,28 @@ function EditContent({ productId }: { productId: string }) {
                   <input value={s.S06.kidsSubDesc ?? ""} placeholder="부가 설명 (예: 아이는 즐겁고 어른들은 쉴 수 있도록!)"
                     onChange={e => setData(d => d && { ...d, S06: { ...d.S06, kidsSubDesc: e.target.value } })}
                     className="w-full border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-600 mb-2 focus:outline-none focus:ring-2 focus:ring-blue-400 bg-gray-50" />
-                  {/* 하이라이트 이미지 3장 */}
-                  <div className="grid grid-cols-3 gap-2 mb-3">
-                    {[0, 1, 2].map(idx => (
-                      <ImgUpload key={idx} label={`하이라이트 ${idx + 1}`} src={images.s06Kids?.[idx]}
-                        onChange={v => setArr("s06Kids", idx, v)} compact />
-                    ))}
+                  {/* 하이라이트 이미지 3장 — 일괄업로드 + 드래그 순서 변경 */}
+                  <div className="mb-3">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <p className="text-xs text-gray-400">⠿ 드래그해서 순서 변경</p>
+                      <label className="text-xs text-blue-600 cursor-pointer hover:text-blue-700 font-medium">
+                        + 일괄 업로드
+                        <input type="file" multiple accept="image/*" className="hidden" onChange={e => handleBulkUpload("s06Kids", e)} />
+                      </label>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[0, 1, 2].map(idx => (
+                        <div key={idx}
+                          draggable={!!images.s06Kids?.[idx]}
+                          onDragStart={() => setDragImg({ key: "s06Kids", idx })}
+                          onDragOver={e => e.preventDefault()}
+                          onDrop={() => handleImgDrop("s06Kids", idx)}
+                          className={`rounded-xl transition-opacity ${dragImg?.key === "s06Kids" && dragImg?.idx === idx ? "opacity-40 ring-2 ring-blue-400" : ""}`}>
+                          <ImgUpload label={`하이라이트 ${idx + 1}`} src={images.s06Kids?.[idx]}
+                            onChange={v => setArr("s06Kids", idx, v)} compact />
+                        </div>
+                      ))}
+                    </div>
                   </div>
                   <div className="space-y-2">
                     {s.S06.kidsFacilities.map((f, i) => (
@@ -814,7 +910,7 @@ function EditContent({ productId }: { productId: string }) {
                               className="w-full text-xs text-gray-500 bg-transparent focus:outline-none" />
                           </div>
                           <select value={f.tag}
-                            onChange={e => setData(d => { if (!d) return d; const fs = [...d.S06.kidsFacilities]; fs[i] = { ...fs[i], tag: e.target.value as Tag }; return { ...d, S06: { ...d.S06, kidsFacilities: fs } }; })}
+                            onChange={e => setData(d => { if (!d) return d; const fs = [...d.S06.kidsFacilities]; fs[i] = { ...fs[i], tag: e.target.value as Tag }; return { ...d, S06: { ...d.S06, kidsFacilities: sortByTag(fs) } }; })}
                             className={`text-xs font-medium px-2 py-1 rounded-lg border-0 focus:outline-none self-start ${f.tag === "free" ? "bg-green-100 text-green-700" : f.tag === "paid" ? "bg-red-100 text-red-700" : "bg-orange-100 text-orange-700"}`}>
                             <option value="free">무료</option>
                             <option value="partially_paid">일부유료</option>
@@ -832,12 +928,28 @@ function EditContent({ productId }: { productId: string }) {
                   <input value={s.S06.diningSubDesc ?? ""} placeholder="부가 설명 (예: 드레스코드, 분위기, 포함 여부 등)"
                     onChange={e => setData(d => d && { ...d, S06: { ...d.S06, diningSubDesc: e.target.value } })}
                     className="w-full border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-600 mb-2 focus:outline-none focus:ring-2 focus:ring-blue-400 bg-gray-50" />
-                  {/* 하이라이트 이미지 3장 */}
-                  <div className="grid grid-cols-3 gap-2 mb-3">
-                    {[0, 1, 2].map(idx => (
-                      <ImgUpload key={idx} label={`하이라이트 ${idx + 1}`} src={images.s06Dining?.[idx]}
-                        onChange={v => setArr("s06Dining", idx, v)} compact />
-                    ))}
+                  {/* 하이라이트 이미지 3장 — 일괄업로드 + 드래그 순서 변경 */}
+                  <div className="mb-3">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <p className="text-xs text-gray-400">⠿ 드래그해서 순서 변경</p>
+                      <label className="text-xs text-blue-600 cursor-pointer hover:text-blue-700 font-medium">
+                        + 일괄 업로드
+                        <input type="file" multiple accept="image/*" className="hidden" onChange={e => handleBulkUpload("s06Dining", e)} />
+                      </label>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[0, 1, 2].map(idx => (
+                        <div key={idx}
+                          draggable={!!images.s06Dining?.[idx]}
+                          onDragStart={() => setDragImg({ key: "s06Dining", idx })}
+                          onDragOver={e => e.preventDefault()}
+                          onDrop={() => handleImgDrop("s06Dining", idx)}
+                          className={`rounded-xl transition-opacity ${dragImg?.key === "s06Dining" && dragImg?.idx === idx ? "opacity-40 ring-2 ring-blue-400" : ""}`}>
+                          <ImgUpload label={`하이라이트 ${idx + 1}`} src={images.s06Dining?.[idx]}
+                            onChange={v => setArr("s06Dining", idx, v)} compact />
+                        </div>
+                      ))}
+                    </div>
                   </div>
                   <div className="space-y-2">
                     {s.S06.dining.map((f, i) => (
@@ -852,7 +964,7 @@ function EditContent({ productId }: { productId: string }) {
                               className="w-full text-xs text-gray-500 bg-transparent focus:outline-none" />
                           </div>
                           <select value={f.tag}
-                            onChange={e => setData(d => { if (!d) return d; const fs = [...d.S06.dining]; fs[i] = { ...fs[i], tag: e.target.value as Tag }; return { ...d, S06: { ...d.S06, dining: fs } }; })}
+                            onChange={e => setData(d => { if (!d) return d; const fs = [...d.S06.dining]; fs[i] = { ...fs[i], tag: e.target.value as Tag }; return { ...d, S06: { ...d.S06, dining: sortByTag(fs) } }; })}
                             className={`text-xs font-medium px-2 py-1 rounded-lg border-0 focus:outline-none self-start ${f.tag === "free" ? "bg-green-100 text-green-700" : f.tag === "paid" ? "bg-red-100 text-red-700" : "bg-orange-100 text-orange-700"}`}>
                             <option value="free">포함</option>
                             <option value="partially_paid">일부유료</option>
