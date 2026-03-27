@@ -193,13 +193,23 @@ export async function GET(request: Request) {
     const prompt  = buildPrompt(shippingLine, shipName, region, researchContext);
     const message = await client.messages.create({
       model: MODEL,
-      max_tokens: 5000,
+      max_tokens: 8000,
       messages: [{ role: "user", content: prompt }],
     });
 
     const raw    = (message.content[0] as { type: "text"; text: string }).text;
     const clean  = raw.replace(/```json\n?|\n?```/g, "").trim();
-    const parsed = JSON.parse(clean);
+    let parsed;
+    try {
+      parsed = JSON.parse(clean);
+    } catch {
+      // max_tokens 초과로 JSON이 잘린 경우 stop_reason 확인
+      const stopReason = (message as { stop_reason?: string }).stop_reason;
+      if (stopReason === "max_tokens") {
+        throw new Error("응답이 너무 길어 잘렸습니다. 항로/기항지가 많은 경우 발생할 수 있습니다. 다시 시도해주세요.");
+      }
+      throw new Error("JSON 파싱 실패: AI 응답 형식 오류. 다시 시도해주세요.");
+    }
 
     // needsReview / sourceInfo 분리
     const { needsReview = [], sourceInfo = null, ...rawData } = parsed;
