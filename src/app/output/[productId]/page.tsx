@@ -69,21 +69,56 @@ function OutputContent({ productId }: { productId: string }) {
   async function handleJpg() {
     if (!outputRef.current) return;
     setExporting("jpg");
+
+    // oklch/oklab 등 최신 CSS 색상 함수를 html2canvas가 파싱 못하는 문제 우회:
+    // Canvas API를 이용해 computed color를 rgb()로 변환 후 inline style로 주입
+    const tempCanvas = document.createElement("canvas");
+    tempCanvas.width = tempCanvas.height = 1;
+    const ctx = tempCanvas.getContext("2d")!;
+    function toRgb(color: string): string {
+      try {
+        ctx.clearRect(0, 0, 1, 1);
+        ctx.fillStyle = color;
+        ctx.fillRect(0, 0, 1, 1);
+        const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
+        if (a === 0) return "transparent";
+        return a < 255 ? `rgba(${r},${g},${b},${(a / 255).toFixed(3)})` : `rgb(${r},${g},${b})`;
+      } catch { return color; }
+    }
+
+    const COLOR_PROPS = ["color", "background-color", "border-top-color", "border-right-color", "border-bottom-color", "border-left-color"];
+    const restored: Array<[HTMLElement, string, string]> = [];
+    const elements = [outputRef.current, ...outputRef.current.querySelectorAll("*")] as HTMLElement[];
+    for (const el of elements) {
+      const cs = window.getComputedStyle(el);
+      for (const prop of COLOR_PROPS) {
+        const val = cs.getPropertyValue(prop);
+        if (!val) continue;
+        restored.push([el, prop, el.style.getPropertyValue(prop)]);
+        el.style.setProperty(prop, toRgb(val));
+      }
+    }
+
     try {
-      const { toJpeg } = await import("html-to-image");
-      const dataUrl = await toJpeg(outputRef.current, {
-        quality: 0.92,
-        pixelRatio: 2,
+      const html2canvas = (await import("html2canvas")).default;
+      const canvas = await html2canvas(outputRef.current, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: true,
+        logging: false,
         backgroundColor: "#ffffff",
-        cacheBust: true,
       });
       const link = document.createElement("a");
       link.download = `${shippingLine}_${shipName}_${region}.jpg`.replace(/\s+/g, "_");
-      link.href = dataUrl;
+      link.href = canvas.toDataURL("image/jpeg", 0.92);
       link.click();
     } catch (e) {
       alert("JPG 저장 실패: " + String(e));
     } finally {
+      restored.forEach(([el, prop, val]) => {
+        if (val) el.style.setProperty(prop, val);
+        else el.style.removeProperty(prop);
+      });
       setExporting(null);
     }
   }
