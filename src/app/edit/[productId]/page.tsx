@@ -181,6 +181,16 @@ function EditContent({ productId }: { productId: string }) {
   // AI 생성 후 검수 필요 항목
   const [needsReview, setNeedsReview] = useState<string[]>([]);
 
+  // AI 생성 출처 정보
+  type SourceInfo = {
+    summary: string;
+    officialUrl: string | null;
+    verifiedFields: string[];
+    unverifiedFields: string[];
+  };
+  const [sourceInfo,  setSourceInfo]  = useState<SourceInfo | null>(null);
+  const [sourceOpen,  setSourceOpen]  = useState(false);
+
   // DB에 저장
   async function saveToDb(d = data, im = images) {
     if (!d) return;
@@ -427,6 +437,7 @@ function EditContent({ productId }: { productId: string }) {
             const d = res.data as AllData;
             setData(d);
             if (res.needsReview?.length > 0) setNeedsReview(res.needsReview);
+            if (res.sourceInfo) setSourceInfo(res.sourceInfo);
             // S07 기항지 이미지만 Unsplash 자동 채우기
             // — 기항지명+국가 쿼리로 검색 후 alt_description 에 지명이 포함된 경우만 삽입
             const ports = d.S07.ports.filter(p => p.name.trim());
@@ -529,6 +540,12 @@ function EditContent({ productId }: { productId: string }) {
                 <span className="w-2.5 h-2.5 border border-violet-400 border-t-transparent rounded-full animate-spin" />
                 이미지 채우는 중
               </span>
+            )}
+            {sourceInfo && (
+              <button onClick={() => setSourceOpen(true)}
+                className="text-xs font-semibold px-3 py-2 rounded-lg border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 flex items-center gap-1">
+                📋 출처 확인
+              </button>
             )}
             <button onClick={() => saveToDb()}
               className="text-xs font-semibold px-3 py-2 rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-600">
@@ -1258,6 +1275,75 @@ function EditContent({ productId }: { productId: string }) {
               </div>
             )}
 
+          </div>
+        </div>
+      )}
+
+      {/* ── 출처 확인 모달 ── */}
+      {sourceOpen && sourceInfo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+          onClick={() => setSourceOpen(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden"
+            onClick={e => e.stopPropagation()}>
+            {/* 모달 헤더 */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <h2 className="text-base font-bold text-gray-900">📋 AI 생성 출처 정보</h2>
+              <button onClick={() => setSourceOpen(false)}
+                className="text-gray-400 hover:text-gray-600 text-xl leading-none w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100">
+                ×
+              </button>
+            </div>
+            {/* 모달 본문 */}
+            <div className="px-6 py-5 space-y-5 max-h-[70vh] overflow-y-auto">
+              {/* 요약 */}
+              <div>
+                <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1.5">출처 요약</p>
+                <p className="text-sm text-gray-700 leading-relaxed">{sourceInfo.summary}</p>
+              </div>
+              {/* 공식 URL */}
+              {sourceInfo.officialUrl && (
+                <div>
+                  <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1.5">공식 페이지 URL</p>
+                  <a href={sourceInfo.officialUrl} target="_blank" rel="noopener noreferrer"
+                    className="text-sm text-blue-600 hover:underline break-all">
+                    {sourceInfo.officialUrl}
+                  </a>
+                </div>
+              )}
+              {/* 공식 확인 항목 */}
+              {sourceInfo.verifiedFields?.length > 0 && (
+                <div>
+                  <p className="text-xs font-bold text-emerald-600 uppercase tracking-wide mb-1.5">✅ 공식 소스 확인됨</p>
+                  <ul className="space-y-1">
+                    {sourceInfo.verifiedFields.map((f, i) => (
+                      <li key={i} className="text-sm text-gray-700 flex items-start gap-1.5">
+                        <span className="text-emerald-500 flex-shrink-0 mt-0.5">•</span>{f}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {/* 미확인 항목 */}
+              {sourceInfo.unverifiedFields?.length > 0 && (
+                <div>
+                  <p className="text-xs font-bold text-amber-600 uppercase tracking-wide mb-1.5">⚠️ 검색만으로 확인 / 불확실</p>
+                  <ul className="space-y-1">
+                    {sourceInfo.unverifiedFields.map((f, i) => (
+                      <li key={i} className="text-sm text-gray-700 flex items-start gap-1.5">
+                        <span className="text-amber-500 flex-shrink-0 mt-0.5">•</span>{f}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+            {/* 모달 푸터 */}
+            <div className="px-6 py-4 border-t border-gray-100 flex justify-end">
+              <button onClick={() => setSourceOpen(false)}
+                className="text-sm font-semibold px-5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl">
+                닫기
+              </button>
+            </div>
           </div>
         </div>
       )}
