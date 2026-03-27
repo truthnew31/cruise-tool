@@ -70,17 +70,16 @@ function OutputContent({ productId }: { productId: string }) {
     if (!outputRef.current) return;
     setExporting("jpg");
     try {
-      const html2canvas = (await import("html2canvas")).default;
-      const canvas = await html2canvas(outputRef.current, {
-        scale: 2,
-        useCORS: true,
-        allowTaint: true,
-        logging: false,
+      const { toJpeg } = await import("html-to-image");
+      const dataUrl = await toJpeg(outputRef.current, {
+        quality: 0.92,
+        pixelRatio: 2,
         backgroundColor: "#ffffff",
+        cacheBust: true,
       });
       const link = document.createElement("a");
       link.download = `${shippingLine}_${shipName}_${region}.jpg`.replace(/\s+/g, "_");
-      link.href = canvas.toDataURL("image/jpeg", 0.92);
+      link.href = dataUrl;
       link.click();
     } catch (e) {
       alert("JPG 저장 실패: " + String(e));
