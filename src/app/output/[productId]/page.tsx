@@ -70,34 +70,58 @@ function OutputContent({ productId }: { productId: string }) {
     if (!outputRef.current) return;
     setExporting("jpg");
 
-    // ── 색상 변환 헬퍼 (Canvas API로 oklch/oklab → rgb 변환) ──────────
+    // ── Canvas로 어떤 CSS 색상이든 rgb()로 변환 ───────────────────────
     const tmpCvs = document.createElement("canvas");
     tmpCvs.width = tmpCvs.height = 1;
     const ctx = tmpCvs.getContext("2d")!;
     function toRgb(color: string): string {
       try {
         ctx.clearRect(0, 0, 1, 1);
+        ctx.fillStyle = "#000";   // reset (이전 색 잔류 방지)
         ctx.fillStyle = color;
         ctx.fillRect(0, 0, 1, 1);
         const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
-        if (a === 0) return "transparent";
+        if (a === 0) return "rgba(0,0,0,0)";
         return a < 255 ? `rgba(${r},${g},${b},${(a / 255).toFixed(3)})` : `rgb(${r},${g},${b})`;
       } catch { return color; }
     }
-    // oklch/oklab 패턴 모두 rgb로 치환 (그라디언트 내부 포함)
-    function convertOklch(css: string): string {
-      return css.replace(/(oklch|oklab)\([^)]+\)/g, m => toRgb(m));
+    // box-shadow·background 같은 복합 값 내부 oklch/oklab만 교체
+    function convertInline(val: string): string {
+      return val.replace(/(oklch|oklab)\([^)]+\)/g, m => toRgb(m));
     }
 
-    // ── 1. 모든 요소에 computed style → inline style 적용 ─────────────
+    // ── NOTE: Chrome에서 getComputedStyle().cssText = "" 이므로
+    //         속성을 개별로 읽어 inline style로 직접 주입해야 함 ─────────
+    const SIMPLE_COLOR = [
+      "color", "background-color",
+      "border-top-color", "border-right-color",
+      "border-bottom-color", "border-left-color",
+      "outline-color", "text-decoration-color", "caret-color",
+      "fill", "stroke",
+    ];
+    const COMPLEX_COLOR = ["box-shadow", "text-shadow", "background", "background-image"];
+
     const elements = [outputRef.current, ...outputRef.current.querySelectorAll("*")] as HTMLElement[];
     const savedStyles = elements.map(el => el.getAttribute("style") ?? "");
+
     elements.forEach(el => {
       const cs = window.getComputedStyle(el);
-      el.setAttribute("style", convertOklch(cs.cssText));
+      // 단순 색상: canvas로 직접 변환
+      for (const prop of SIMPLE_COLOR) {
+        const val = cs.getPropertyValue(prop);
+        if (!val) continue;
+        el.style.setProperty(prop, toRgb(val), "important");
+      }
+      // 복합 값: oklch/oklab 패턴만 교체
+      for (const prop of COMPLEX_COLOR) {
+        const val = cs.getPropertyValue(prop);
+        if (val && (val.includes("oklch") || val.includes("oklab"))) {
+          el.style.setProperty(prop, convertInline(val), "important");
+        }
+      }
     });
 
-    // ── 2. 스타일시트 임시 비활성화 (oklch 파싱 오류 차단) ────────────
+    // ── 스타일시트 임시 비활성화 (html2canvas 파서가 oklch 만나는 경로 차단) ──
     const sheets = Array.from(document.styleSheets);
     sheets.forEach(s => { try { s.disabled = true; } catch { /* cross-origin 무시 */ } });
 
@@ -117,9 +141,7 @@ function OutputContent({ productId }: { productId: string }) {
     } catch (e) {
       alert("JPG 저장 실패: " + String(e));
     } finally {
-      // ── 3. 스타일시트 복원 ────────────────────────────────────────────
       sheets.forEach(s => { try { s.disabled = false; } catch { /* ignore */ } });
-      // ── 4. inline style 복원 ─────────────────────────────────────────
       elements.forEach((el, i) => {
         if (savedStyles[i]) el.setAttribute("style", savedStyles[i]);
         else el.removeAttribute("style");
