@@ -238,7 +238,20 @@ export async function GET(request: Request) {
         shipName,
         region,
         departure,
-        ...rawData,
+        data: rawData,   // 편집 페이지 구조와 일치: p.data.S01 ...
+        images: {},
+        benefits: [
+          { key: "wifi", enabled: true },
+          { key: "port_voucher", enabled: true },
+          { key: "onboard_credit", enabled: true },
+        ],
+        priceRows: [{ id: "1", cabin: "", guests: 2, total: 0, note: "" }],
+        consulting: {
+          enabled: true,
+          phone: "02-733-9034",
+          weekdayHours: "평일 10시 ~ 17시",
+          chatHours: "오전 10:00 ~ 11:00 / 오후 3:00 ~ 4:00",
+        },
         createdAt: now,
         updatedAt: now,
       });
