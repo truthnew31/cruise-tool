@@ -22,9 +22,22 @@ const COL = {
   PAGE_LINK    : 10, // J: 상세페이지 (편집 링크)
   NEEDS_REVIEW : 11, // K: 검수 필요 사항
   JPG_LINK     : 12, // L: JPG 다운로드 (빈 열 활용)
-  //             13, // M: (빈 열)
+  //             13, // M: 상품 유형 (크루즈/투어) — 선택 열
   COMPLETE     : 14, // N: 검수 완료 여부
 };
+
+// D열 상품명에서 상품 유형 판단 (마지막줄이 영어선박명 패턴이면 크루즈)
+function detectProductType(lines) {
+  // M열에 명시된 경우 우선
+  // 판단 기준: "크루즈" 키워드 or 선박명(영문+공백) 패턴
+  var text = lines.join(' ').toLowerCase();
+  if (text.includes('크루즈') || text.includes('cruise') || text.includes('선박') ||
+      text.includes('ncl') || text.includes('msc') || text.includes('royal caribbean') ||
+      text.includes('princess') || text.includes('celebrity')) {
+    return 'cruise';
+  }
+  return 'tour';
+}
 
 // ── I열 드롭박스 무시하고 쓰기 ─────────────────────
 function setPageStatus(sheet, row, value) {
@@ -105,34 +118,66 @@ function generateSelected() {
     return;
   }
 
-  // D열 상품명 읽기 & 파싱
+  // D열 상품명 읽기
   var productNameRaw = sheet.getRange(row, COL.PRODUCT_NAME).getValue();
   if (!productNameRaw) {
     ui.alert("D열 상품명이 비어있습니다. 상품명을 입력해주세요.");
     return;
   }
 
-  var parsed = parseProductName(productNameRaw);
+  // M열(13번)에 상품 유형 명시 여부 확인, 없으면 자동 감지
+  var typeCellVal = String(sheet.getRange(row, 13).getValue()).trim();
+  var lines = String(productNameRaw).split('\n')
+    .map(function(l) { return l.trim(); })
+    .filter(function(l) { return l.length > 0; });
 
-  if (!parsed.shippingLine || !parsed.shipName || !parsed.region) {
-    ui.alert(
-      "상품명에서 정보를 파싱할 수 없습니다.\n\n" +
-      "상품명 형식을 확인해주세요:\n" +
-      "선사: " + (parsed.shippingLine || "인식 불가") + "\n" +
-      "선박명: " + (parsed.shipName || "인식 불가") + "\n" +
-      "노선: " + (parsed.region || "인식 불가")
-    );
-    return;
+  var productType;
+  if (typeCellVal.includes('투어') || typeCellVal.toLowerCase().includes('tour')) {
+    productType = 'tour';
+  } else if (typeCellVal.includes('크루즈') || typeCellVal.toLowerCase().includes('cruise')) {
+    productType = 'cruise';
+  } else {
+    productType = detectProductType(lines);
+  }
+
+  var parsed = parseProductName(productNameRaw);
+  var confirmMsg, apiPath, editUrl, outputUrl;
+
+  if (productType === 'cruise') {
+    // 크루즈: 선사/선박명/노선 파싱
+    if (!parsed.shippingLine || !parsed.shipName || !parsed.region) {
+      ui.alert("상품명에서 크루즈 정보(선사·선박명·노선)를 파싱할 수 없습니다.\n형식을 확인해주세요.");
+      return;
+    }
+    confirmMsg = "🚢 크루즈 상품\n\n선사: " + parsed.shippingLine
+      + "\n선박명: " + parsed.shipName
+      + "\n노선: " + parsed.region
+      + "\n출항: " + (parsed.departure || "미입력");
+    apiPath = "/api/generate-all?shippingLine=" + encodeURIComponent(parsed.shippingLine)
+      + "&shipName="  + encodeURIComponent(parsed.shipName)
+      + "&region="    + encodeURIComponent(parsed.region)
+      + "&departure=" + encodeURIComponent(parsed.departure)
+      + "&save=true";
+  } else {
+    // 투어: 마지막=상품명, 끝에서2번=지역, 끝에서3번=기간
+    var tName     = lines[lines.length - 1] || '';
+    var tRegion   = lines.length >= 2 ? lines[lines.length - 2] : '';
+    var tDuration = lines.length >= 3 ? lines[lines.length - 3] : '';
+    parsed.tourProductName = tName;
+    parsed.tourRegion      = tRegion;
+    parsed.tourDuration    = tDuration;
+    confirmMsg = "✈️ 투어 상품\n\n상품명: " + tName
+      + "\n지역: " + tRegion
+      + "\n기간: " + tDuration;
+    apiPath = "/api/generate-tour?productName=" + encodeURIComponent(tName)
+      + "&region="   + encodeURIComponent(tRegion)
+      + "&duration=" + encodeURIComponent(tDuration)
+      + "&save=true";
   }
 
   var confirm = ui.alert(
     "상세페이지 생성 확인",
-    "아래 정보로 생성합니다:\n\n" +
-    "선사: "   + parsed.shippingLine + "\n" +
-    "선박명: " + parsed.shipName     + "\n" +
-    "노선: "   + parsed.region       + "\n" +
-    "출항: "   + (parsed.departure || "미입력") +
-    "\n\n생성하시겠습니까? (약 1~2분 소요)",
+    confirmMsg + "\n\n생성하시겠습니까? (약 1~2분 소요)",
     ui.ButtonSet.YES_NO
   );
   if (confirm !== ui.Button.YES) return;
@@ -145,51 +190,45 @@ function generateSelected() {
   SpreadsheetApp.flush();
 
   try {
-    var params =
-      "shippingLine=" + encodeURIComponent(parsed.shippingLine) +
-      "&shipName="    + encodeURIComponent(parsed.shipName)     +
-      "&region="      + encodeURIComponent(parsed.region)       +
-      "&departure="   + encodeURIComponent(parsed.departure)    +
-      "&save=true";
-
-    var response = UrlFetchApp.fetch(CRUISE_API + "/api/generate-all?" + params, {
-      muteHttpExceptions: true,
-      followRedirects: true,
-    });
-
-    var result = JSON.parse(response.getContentText());
+    var response = UrlFetchApp.fetch(CRUISE_API + apiPath, { muteHttpExceptions: true });
+    var result   = JSON.parse(response.getContentText());
 
     if (result.ok && result.productId) {
       var productId = result.productId;
-      var editUrl = CRUISE_API + "/edit/" + productId
-        + "?fromDB=1"
-        + "&shippingLine=" + encodeURIComponent(parsed.shippingLine)
-        + "&shipName="     + encodeURIComponent(parsed.shipName)
-        + "&region="       + encodeURIComponent(parsed.region);
-      var outputUrl = CRUISE_API + "/output/" + productId
-        + "?" + "shippingLine=" + encodeURIComponent(parsed.shippingLine)
-        + "&shipName=" + encodeURIComponent(parsed.shipName)
-        + "&region="   + encodeURIComponent(parsed.region);
 
-      // 결과 기입
+      if (productType === 'cruise') {
+        editUrl   = CRUISE_API + "/edit/" + productId
+          + "?fromDB=1"
+          + "&shippingLine=" + encodeURIComponent(parsed.shippingLine)
+          + "&shipName="     + encodeURIComponent(parsed.shipName)
+          + "&region="       + encodeURIComponent(parsed.region);
+        outputUrl = CRUISE_API + "/output/" + productId
+          + "?shippingLine=" + encodeURIComponent(parsed.shippingLine)
+          + "&shipName="     + encodeURIComponent(parsed.shipName)
+          + "&region="       + encodeURIComponent(parsed.region);
+      } else {
+        editUrl   = CRUISE_API + "/edit-tour/" + productId
+          + "?fromDB=1"
+          + "&productName=" + encodeURIComponent(parsed.tourProductName)
+          + "&region="      + encodeURIComponent(parsed.tourRegion)
+          + "&duration="    + encodeURIComponent(parsed.tourDuration);
+        outputUrl = CRUISE_API + "/output-tour/" + productId
+          + "?productName=" + encodeURIComponent(parsed.tourProductName)
+          + "&region="      + encodeURIComponent(parsed.tourRegion);
+      }
+
       setPageStatus(sheet, row, "초안 완성");
 
       var needsReview = (result.needsReview && result.needsReview.length > 0)
-        ? result.needsReview.join("\n")
-        : "없음";
+        ? result.needsReview.join("\n") : "없음";
       sheet.getRange(row, COL.NEEDS_REVIEW).setValue(needsReview);
       sheet.getRange(row, COL.NEEDS_REVIEW).setBackground(
         result.needsReview && result.needsReview.length > 0 ? "#FFF3CD" : "#D4EDDA"
       );
+      sheet.getRange(row, COL.PAGE_LINK).setFormula('=HYPERLINK("' + editUrl + '","✏️ 편집하기")');
+      sheet.getRange(row, COL.JPG_LINK).setFormula('=HYPERLINK("' + outputUrl + '","🖼️ JPG 다운로드")');
 
-      sheet.getRange(row, COL.PAGE_LINK).setFormula(
-        '=HYPERLINK("' + editUrl + '","✏️ 편집하기")'
-      );
-      sheet.getRange(row, COL.JPG_LINK).setFormula(
-        '=HYPERLINK("' + outputUrl + '","🖼️ JPG 다운로드")'
-      );
-
-      ui.alert("✅ 생성 완료!\n\n검수 필요 사항:\n" + needsReview);
+      ui.alert("✅ 생성 완료! (" + (productType === 'cruise' ? '🚢 크루즈' : '✈️ 투어') + ")\n\n검수 필요 사항:\n" + needsReview);
 
     } else {
       var errMsg = result.error || "알 수 없는 오류";
