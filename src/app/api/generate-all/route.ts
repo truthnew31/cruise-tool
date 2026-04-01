@@ -178,6 +178,8 @@ export async function GET(request: Request) {
   const shippingLine = url.searchParams.get("shippingLine") ?? "";
   const shipName     = url.searchParams.get("shipName")     ?? "";
   const region       = url.searchParams.get("region")       ?? "";
+  const departure    = url.searchParams.get("departure")    ?? "";
+  const saveToDb     = url.searchParams.get("save") === "true";
 
   if (!shippingLine || !shipName || !region) {
     return Response.json({ error: "필수 파라미터 누락" }, { status: 400 });
@@ -224,9 +226,28 @@ export async function GET(request: Request) {
         rawData.S06.dining = sortByTag(rawData.S06.dining);
     }
 
+    // save=true 이면 Supabase에 저장 후 productId 반환
+    let productId: string | undefined;
+    if (saveToDb) {
+      const { upsertProduct } = await import("@/lib/db");
+      productId = crypto.randomUUID();
+      const now = new Date().toISOString();
+      await upsertProduct({
+        id: productId,
+        shippingLine,
+        shipName,
+        region,
+        departure,
+        ...rawData,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
     return Response.json({
       ok: true,
       data: rawData,
+      ...(productId ? { productId } : {}),
       needsReview,
       sourceInfo,
       searchUsed: !!researchContext,
