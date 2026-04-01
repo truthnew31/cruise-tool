@@ -4,6 +4,7 @@ import { use, useEffect, useState, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import type { TourData, TourSectionId } from "@/types/tour";
+import TourDetailPreview from "@/components/TourDetailPreview";
 
 // ── 공통 UI ─────────────────────────────────────────────────
 function SectionCard({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
@@ -461,7 +462,7 @@ function EditTourContent({ productId }: { productId: string }) {
           <div className="sticky top-20">
             <p className="text-xs text-gray-400 mb-2 text-center">미리보기 (390px)</p>
             <div className="border border-gray-200 rounded-2xl overflow-hidden shadow-lg w-[390px]">
-              <TourPreviewPlaceholder productName={productName} region={region} />
+              <TourDetailPreview data={data} images={images} productName={productName} region={region} duration={duration} />
             </div>
           </div>
         </div>
@@ -470,19 +471,6 @@ function EditTourContent({ productId }: { productId: string }) {
   );
 }
 
-// 미리보기 플레이스홀더 (TourDetailPreview 빌드 후 교체)
-function TourPreviewPlaceholder({ productName, region }: { productName: string; region: string }) {
-  return (
-    <div className="bg-gray-100 flex items-center justify-center p-8 min-h-[400px]">
-      <div className="text-center space-y-2">
-        <p className="text-2xl">✈️</p>
-        <p className="text-sm font-medium text-gray-700">{productName}</p>
-        <p className="text-xs text-gray-400">{region}</p>
-        <p className="text-xs text-gray-400">저장 후 상세페이지 보기에서 확인하세요</p>
-      </div>
-    </div>
-  );
-}
 
 export default function EditTourPage({ params }: { params: Promise<{ productId: string }> }) {
   const { productId } = use(params);
