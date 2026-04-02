@@ -54,7 +54,30 @@ function onOpen() {
     .addSeparator()
     .addItem("✅ 검수 완료 처리 (선택 행)", "markComplete")
     .addItem("🔄 생성 결과 초기화 (선택 행)", "resetRow")
+    .addSeparator()
+    .addItem("💡 상품명 입력 형식 보기", "showFormatGuide")
     .addToUi();
+}
+
+// ── 상품명 입력 형식 안내 ───────────────────────────
+function showFormatGuide() {
+  var ui = SpreadsheetApp.getUi();
+  ui.alert(
+    "📝 D열 상품명 입력 형식",
+    "【크루즈 상품】\n" +
+    "영문 노선명 (예: Alaska Cruise)\n" +
+    "한글 노선명 (예: 알래스카 크루즈)\n" +
+    "지역 (예: 알래스카)\n" +
+    "출항년월 (예: 2026-07)\n" +
+    "선사명 (예: Norwegian Cruise Line)\n" +
+    "선박명 (예: Norwegian Bliss)\n\n" +
+    "【일반 투어 상품】\n" +
+    "상품명 (예: 스위스 융프라우 완전정복)\n" +
+    "여행지/지역 (예: 스위스 취리히·인터라켄)\n" +
+    "기간 (예: 7박 8일)\n\n" +
+    "⚠️ 각 정보는 셀 내 줄바꿈(Alt+Enter)으로 구분",
+    ui.ButtonSet.OK
+  );
 }
 
 // ── D열 상품명 파싱 ─────────────────────────────────
